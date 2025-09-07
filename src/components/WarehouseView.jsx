@@ -3,10 +3,11 @@ import { useArtwork } from "../context/ArtworkContextDB";
 import { useLanguage } from "../context/LanguageContext";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, QrCode } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion } from "framer-motion";
 import ArtworkDetailModal from "./ArtworkDetailModal";
+import QRScanner from "./QRScanner";
 
 export const WarehouseView = () => {
   const { artworks, loadedCount, hasMoreData, loadMoreArtworks, moveArtwork } = useArtwork();
@@ -16,6 +17,7 @@ export const WarehouseView = () => {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedArtwork, setSelectedArtwork] = useState(null);
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const itemsPerPage = 2000; // Number of items per page - increased for fewer pages
 
   // Reset state when component mounts or when artworks change
@@ -24,6 +26,7 @@ export const WarehouseView = () => {
     setLocationArtworks([]);
     setCurrentPage(1);
     setSelectedArtwork(null);
+    setShowQRScanner(false);
   }, [artworks]);
 
   // The 6 locations from your image
@@ -84,6 +87,26 @@ export const WarehouseView = () => {
       console.log('Artwork moved successfully');
     } catch (error) {
       console.error('Error moving artwork:', error);
+    }
+  };
+
+  const handleQRScan = (qrData) => {
+    console.log('QR Code scanned:', qrData);
+    // Extract artwork ID from QR data (assuming format like ?artwork=123)
+    const urlParams = new URLSearchParams(qrData);
+    const artworkId = urlParams.get('artwork');
+    
+    if (artworkId) {
+      // Find the artwork by ID
+      const artwork = artworks.find(a => a.id === artworkId);
+      if (artwork) {
+        setSelectedArtwork(artwork);
+        setShowQRScanner(false);
+      } else {
+        alert('Artwork not found!');
+      }
+    } else {
+      alert('Invalid QR code format!');
     }
   };
 
@@ -204,7 +227,7 @@ export const WarehouseView = () => {
   return (
     <div className="w-full space-y-6">
       <div className="text-center mb-6 sm:mb-8">
-        <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-1 sm:mb-2 tracking-wide">
+        <h2 className="text-lg sm:text-xl font-bold text-gray-800 mb-1 sm:mb-2 tracking-wide">
           {t('warehouse.title')}
         </h2>
         <p className="text-gray-500 text-sm font-normal tracking-wide">
@@ -245,6 +268,55 @@ export const WarehouseView = () => {
           </motion.div>
         ))}
       </div>
+
+      {/* QR Scanner Button */}
+      <div className="mt-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+        >
+          <Card 
+            className="cursor-pointer transition-all duration-200 border-gray-200/50 hover:border-gray-300/50 hover:shadow-xl active:scale-[0.98] bg-blue-500 hover:bg-blue-600"
+            onClick={() => setShowQRScanner(true)}
+          >
+            <CardHeader className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 rounded-lg bg-white/20 backdrop-blur-sm">
+                    <QrCode size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base sm:text-lg font-semibold text-white tracking-tight">
+                      {t('header.qr_scanner')}
+                    </CardTitle>
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-white/20 backdrop-blur-sm">
+                  <span className="text-white text-lg">📱</span>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <QRScanner
+          onScan={handleQRScan}
+          onClose={() => setShowQRScanner(false)}
+        />
+      )}
+
+      {/* Artwork Detail Modal */}
+      {selectedArtwork && (
+        <ArtworkDetailModal
+          artwork={selectedArtwork}
+          onClose={() => setSelectedArtwork(null)}
+          onMove={handleMoveArtwork}
+        />
+      )}
     </div>
   );
 };

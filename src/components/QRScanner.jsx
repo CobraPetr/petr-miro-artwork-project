@@ -78,15 +78,7 @@ const QRScanner = ({ onScan, onClose }) => {
           />
           {!isScanning && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded">
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">Camera ready</p>
-                <button
-                  onClick={startScanning}
-                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                >
-                  Start Scanning
-                </button>
-              </div>
+              <p className="text-gray-600 text-center">Camera ready</p>
             </div>
           )}
         </div>
