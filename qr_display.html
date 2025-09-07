@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artwork QR Code</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2rem;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            margin-bottom: 1rem;
+            font-size: 2rem;
+        }
+        .qr-code {
+            margin: 2rem 0;
+            padding: 1rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+        .info {
+            margin-top: 1rem;
+            font-size: 1.1rem;
+        }
+        .url {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+            word-break: break-all;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Artwork QR Code</h1>
+        <div class="qr-code">
+            <img src="artwork_qr.png" alt="QR Code for Artwork" style="max-width: 300px; height: auto;">
+        </div>
+        <div class="info">
+            <p><strong>Scan this QR code to view the artwork details!</strong></p>
+            <p>Artwork: <strong>Artwork 92</strong></p>
+            <div class="url">
+                https://petr-miro-artwork-project-ir2dtib7k-petr-nikolaevs-projects.vercel.app/artwork/ART-92
+            </div>
+        </div>
+    </div>
+</body>
+</html>

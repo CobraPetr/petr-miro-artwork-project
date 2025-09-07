@@ -1,327 +1,250 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useArtwork } from "../context/ArtworkContextDB";
-import { Card, CardHeader, CardTitle } from "./ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
+import { useLanguage } from "../context/LanguageContext";
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { Box, Warehouse, FolderOpen, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "./ui/button";
 import { motion } from "framer-motion";
+import ArtworkDetailModal from "./ArtworkDetailModal";
 
 export const WarehouseView = () => {
-  const { getArtworksAtLocation } = useArtwork();
-  const [currentView, setCurrentView] = useState({
-    warehouse: null,
-    floor: null,
-    shelf: null,
-    box: null,
-    folder: null
-  });
-  const [viewArtworks, setViewArtworks] = useState([]);
+  const { artworks, loadedCount, hasMoreData, loadMoreArtworks, moveArtwork } = useArtwork();
+  const { t } = useLanguage();
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [locationArtworks, setLocationArtworks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedArtwork, setSelectedArtwork] = useState(null);
+  const itemsPerPage = 2000; // Number of items per page - increased for fewer pages
 
-  // Generate warehouses (1-4) based on our database structure
-  const warehouses = [
-    { id: "1", name: "Lagerhaus 1" },
-    { id: "2", name: "Lagerhaus 2" }, 
-    { id: "3", name: "Lagerhaus 3" },
-    { id: "4", name: "Lagerhaus 4" }
+  // Reset state when component mounts or when artworks change
+  useEffect(() => {
+    setSelectedLocation(null);
+    setLocationArtworks([]);
+    setCurrentPage(1);
+    setSelectedArtwork(null);
+  }, [artworks]);
+
+  // The 6 locations from your image
+  const locations = [
+    'Prag to depo',
+    'Hodonin Bank',
+    'Hodonin Hala', 
+    'Zürich Lessing',
+    'Zürich Wädenswil',
+    'Anderswo'
   ];
 
-  const loadArtworksForLocation = useCallback(async (warehouse, floor, shelf, box, folder) => {
+  // Get artwork count for each location
+  const getArtworkCountForLocation = (location) => {
+    return artworks.filter(artwork => 
+      artwork.warehouse === location || 
+      (artwork.warehouse && artwork.warehouse.toLowerCase().includes(location.toLowerCase()))
+    ).length;
+  };
+
+  const loadArtworksForLocation = (location) => {
     setLoading(true);
     try {
-      const result = await getArtworksAtLocation(warehouse, floor, shelf, box, folder);
-      setViewArtworks(result || []);
+      const filteredArtworks = artworks.filter(artwork => 
+        artwork.warehouse === location || 
+        (artwork.warehouse && artwork.warehouse.toLowerCase().includes(location.toLowerCase()))
+      );
+      setLocationArtworks(filteredArtworks);
     } catch (error) {
       console.error('Error loading artworks:', error);
-      setViewArtworks([]);
+      setLocationArtworks([]);
     } finally {
       setLoading(false);
     }
-  }, [getArtworksAtLocation]);
+  };
 
-  useEffect(() => {
-    if (currentView.warehouse) {
-      loadArtworksForLocation(
-        currentView.warehouse,
-        currentView.floor,
-        currentView.shelf,
-        currentView.box,
-        currentView.folder
-      );
-    }
-  }, [currentView, loadArtworksForLocation]);
+  const handleLocationClick = (location) => {
+    setSelectedLocation(location);
+    setCurrentPage(1); // Reset to first page
+    loadArtworksForLocation(location);
+  };
 
-  const handleLocationClick = (locationType, value) => {
-    const newView = { ...currentView };
-    
-    switch(locationType) {
-      case "warehouse":
-        setCurrentView({ warehouse: value, floor: null, shelf: null, box: null, folder: null });
-        break;
-      case "floor":
-        newView.floor = value;
-        newView.shelf = null;
-        newView.box = null;
-        newView.folder = null;
-        setCurrentView(newView);
-        break;
-      case "shelf":
-        newView.shelf = value;
-        newView.box = null;
-        newView.folder = null;
-        setCurrentView(newView);
-        break;
-      case "box":
-        newView.box = value;
-        newView.folder = null;
-        setCurrentView(newView);
-        break;
-      case "folder":
-        newView.folder = value;
-        setCurrentView(newView);
-        break;
-      default:
-        // Do nothing for unknown location types
-        break;
+  const handleBack = () => {
+    setSelectedLocation(null);
+    setLocationArtworks([]);
+    setCurrentPage(1);
+  };
+
+  const handleMoveArtwork = async (artworkId, newLocation) => {
+    try {
+      await moveArtwork(artworkId, newLocation);
+      // Update the local locationArtworks state to reflect the change
+      setLocationArtworks(prev => prev.map(artwork => 
+        artwork.id === artworkId 
+          ? { ...artwork, ...newLocation, lastMoved: new Date().toISOString() }
+          : artwork
+      ));
+      console.log('Artwork moved successfully');
+    } catch (error) {
+      console.error('Error moving artwork:', error);
     }
   };
 
-  const navigateBack = () => {
-    if (currentView.folder) {
-      setCurrentView({ ...currentView, folder: null });
-    } else if (currentView.box) {
-      setCurrentView({ ...currentView, box: null });
-    } else if (currentView.shelf) {
-      setCurrentView({ ...currentView, shelf: null });
-    } else if (currentView.floor) {
-      setCurrentView({ ...currentView, floor: null });
-    }
-  };
+  // Pagination for location artworks
+  const totalPages = Math.ceil(locationArtworks.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedLocationArtworks = locationArtworks.slice(startIndex, endIndex);
 
-  const renderLocationIcon = (locationType) => {
-    switch(locationType) {
-      case "warehouse": return <Warehouse size={18} />;
-      case "floor": return <FolderOpen size={18} />;
-      case "shelf": return <FolderOpen size={18} />;
-      case "box": return <Box size={18} />;
-      default: return <Box size={18} />;
-    }
-  };
-
-  const renderLocationCard = (name, type, count, onClick) => {
+  if (selectedLocation) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <Card 
-          className="mb-4 cursor-pointer transition-all duration-200 border-border/50 hover:border-border hover:shadow-ios active:scale-[0.98] bg-card/50 backdrop-blur-sm"
-          onClick={onClick}
-        >
-          <CardHeader className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  {renderLocationIcon(type)}
-                </div>
-                <div>
-                  <CardTitle className="text-lg font-semibold text-foreground mb-1">
-                    {name}
-                  </CardTitle>
-                </div>
-              </div>
-              <Badge className="bg-primary/10 text-primary border-primary/20 font-medium">
-                {count}
-              </Badge>
-            </div>
-          </CardHeader>
-        </Card>
-      </motion.div>
-    );
-  };
+      <div className="w-full space-y-6">
+        <div className="text-center mb-6 sm:mb-8">
+          <Button 
+            variant="outline" 
+            onClick={handleBack} 
+            className="h-10 sm:h-12 mb-3 sm:mb-4 bg-white/60 backdrop-blur-sm border-gray-200/50 text-gray-700 hover:bg-white/80 px-4 sm:px-6 rounded-lg font-medium text-sm sm:text-base"
+          >
+            <ArrowLeft className="mr-1" size={14} /> {t('common.cancel')}
+          </Button>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-800 tracking-wide">
+            {selectedLocation}
+          </h2>
+        </div>
 
-  const renderArtworks = () => {
-    if (loading) {
-      return <div className="text-center py-8">Loading artworks...</div>;
-    }
-
-    return (
-      <div>
-        <Button 
-          variant="outline" 
-          onClick={navigateBack} 
-          className="mb-6 w-full sm:w-auto h-11 text-sm border-border/50 hover:bg-muted"
-        >
-          <ArrowLeft className="mr-2" size={16} /> Zurück
-        </Button>
-        
-        <h2 className="section-header">KUNSTWERKE IN ORDNER {currentView.folder}</h2>
-        {viewArtworks.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">{t('artworks.loading')}</p>
+          </div>
+        ) : locationArtworks.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            <p>Keine Kunstwerke in diesem Ordner gefunden.</p>
+            <p>{t('warehouse.no_artworks')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {viewArtworks.map(artwork => (
-              <Card key={artwork.id} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="text-lg">{artwork.title}</CardTitle>
-                  <p className="text-muted-foreground">{artwork.artist}</p>
-                  <p className="text-sm text-muted-foreground">{artwork.year}</p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Lager {artwork.warehouse}, Etage {artwork.floor}, Regal {artwork.shelf}, Box {artwork.box}, Ordner {artwork.folder}
-                  </p>
-                </CardHeader>
-              </Card>
+          <>
+            {/* Pagination Info */}
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm sm:text-base text-gray-600 font-normal">
+                Showing {startIndex + 1}-{Math.min(endIndex, locationArtworks.length)} of {locationArtworks.length} artworks
+                {loadedCount > 0 && (
+                  <span className="ml-1 sm:ml-2 text-xs text-gray-500">
+                    (Loaded: {loadedCount} total)
+                  </span>
+                )}
+              </p>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 sm:px-4 py-2 text-sm font-medium bg-white/60 backdrop-blur-sm border border-gray-200/50 rounded-md text-gray-700 hover:bg-white/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 sm:px-4 py-2 text-sm font-medium bg-white/60 backdrop-blur-sm border border-gray-200/50 rounded-md text-gray-700 hover:bg-white/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
+              {paginatedLocationArtworks.map((artwork) => (
+              <motion.div
+                key={artwork.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                onClick={() => {
+                  console.log('Artwork clicked:', artwork);
+                  setSelectedArtwork(artwork);
+                }}
+              >
+            <Card 
+              className="cursor-pointer hover:shadow-xl transition-all duration-200 bg-white/60 backdrop-blur-sm border-gray-200/50 hover:bg-white/80"
+            >
+              <CardHeader className="p-3">
+                <CardTitle className="text-sm font-semibold text-gray-900 line-clamp-2 leading-tight tracking-wide">
+                  {artwork.title}
+                </CardTitle>
+                <p className="text-sm font-normal text-gray-600 line-clamp-1 tracking-wide">{artwork.artist}</p>
+                {artwork.year && (
+                  <p className="text-xs text-gray-500 font-normal">{artwork.year}</p>
+                )}
+                {artwork.value && (
+                  <Badge className="bg-gray-100/80 text-gray-700 border-gray-200/50 w-fit text-xs backdrop-blur-sm font-medium">
+                    €{artwork.value.toLocaleString()}
+                  </Badge>
+                )}
+              </CardHeader>
+            </Card>
+              </motion.div>
             ))}
-          </div>
+            </div>
+            
+            {/* Artwork Detail Modal */}
+            {selectedArtwork && (
+              <ArtworkDetailModal
+                artwork={selectedArtwork}
+                onClose={() => setSelectedArtwork(null)}
+                onMove={handleMoveArtwork}
+              />
+            )}
+            
+          </>
         )}
       </div>
     );
-  };
-
-  const renderHierarchicalView = () => {
-    // Only show artworks when we're at the deepest level (folder)
-    if (currentView.folder) {
-      return renderArtworks();
-    }
-
-    if (currentView.box) {
-      // Show folders in this box (1-5 folders)
-      const folders = [1, 2, 3, 4, 5].map(num => ({
-        name: `Ordner ${num}`,
-        id: num
-      }));
-      
-      return (
-        <div>
-          <Button variant="outline" onClick={navigateBack} className="mb-4">
-            <ArrowLeft className="mr-2" size={16} /> Zurück zum Regal
-          </Button>
-          <h2 className="section-header">ORDNER IN BOX {currentView.box}</h2>
-          {folders.map((folder) => 
-            renderLocationCard(
-              folder.name, 
-              "folder", 
-              Math.floor(Math.random() * 3) + 1, // 1-3 artworks per folder
-              () => handleLocationClick("folder", folder.id)
-            )
-          )}
-        </div>
-      );
-    }
-
-    if (currentView.shelf) {
-      // Show boxes in this shelf (1-10 boxes)
-      const boxes = Array.from({length: 10}, (_, i) => ({
-        name: `Box ${i + 1}`,
-        id: i + 1
-      }));
-      
-      return (
-        <div>
-          <Button variant="outline" onClick={navigateBack} className="mb-4">
-            <ArrowLeft className="mr-2" size={16} /> Zurück zur Etage
-          </Button>
-          <h2 className="section-header">BOXEN IN REGAL {currentView.shelf}</h2>
-          {boxes.map((box) => 
-            renderLocationCard(
-              box.name, 
-              "box", 
-              Math.floor(Math.random() * 8) + 3, // 3-10 folders per box
-              () => handleLocationClick("box", box.id)
-            )
-          )}
-        </div>
-      );
-    }
-
-    if (currentView.floor) {
-      // Show shelves in this floor (1-30 shelves)
-      const shelves = Array.from({length: 30}, (_, i) => ({
-        name: `Regal ${i + 1}`,
-        id: i + 1
-      }));
-      
-      return (
-        <div>
-          <Button variant="outline" onClick={navigateBack} className="mb-4">
-            <ArrowLeft className="mr-2" size={16} /> Zurück zum Lagerhaus
-          </Button>
-          <h2 className="section-header">REGALE IN ETAGE {currentView.floor}</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-            {shelves.map((shelf) => 
-              renderLocationCard(
-                shelf.name, 
-                "shelf", 
-                Math.floor(Math.random() * 50) + 10, // 10-60 boxes per shelf
-                () => handleLocationClick("shelf", shelf.id)
-              )
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    if (currentView.warehouse) {
-      // Show floors in this warehouse (1-3 floors)
-      const floors = [1, 2, 3].map(num => ({
-        name: `Etage ${num}`,
-        id: num
-      }));
-      
-      return (
-        <div>
-          <h2 className="section-header">ETAGEN IN LAGERHAUS {currentView.warehouse}</h2>
-          {floors.map((floor) => 
-            renderLocationCard(
-              floor.name, 
-              "floor", 
-              Math.floor(Math.random() * 200) + 50, // 50-250 shelves per floor
-              () => handleLocationClick("floor", floor.id)
-            )
-          )}
-        </div>
-      );
-    }
-
-    return <div>Wählen Sie ein Lagerhaus aus den Tabs oben aus</div>;
-  };
+  }
 
   return (
     <div className="w-full space-y-6">
-      {/* Section Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="section-header">LAGERHAUS-ORGANISATION</h2>
-        </div>
+      <div className="text-center mb-6 sm:mb-8">
+        <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-1 sm:mb-2 tracking-wide">
+          {t('warehouse.title')}
+        </h2>
+        <p className="text-gray-500 text-sm font-normal tracking-wide">
+          6 locations
+        </p>
       </div>
-      
-      <Tabs 
-        value={currentView.warehouse || ""} 
-        onValueChange={(value) => handleLocationClick("warehouse", value)}
-        className="w-full"
-      >
-        <TabsList className="mb-6 h-12 p-1 grid w-full bg-muted rounded-xl" style={{ gridTemplateColumns: `repeat(${warehouses.length}, 1fr)` }}>
-          {warehouses.map(warehouse => (
-            <TabsTrigger 
-              key={warehouse.id} 
-              value={warehouse.id}
-              className="text-sm font-medium px-3 py-2 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-ios data-[state=active]:text-foreground"
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {locations.map((location, index) => (
+          <motion.div
+            key={location}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.1 }}
+          >
+            <Card 
+              className="cursor-pointer transition-all duration-200 border-gray-200/50 hover:border-gray-300/50 hover:shadow-xl active:scale-[0.98] bg-white/60 backdrop-blur-sm"
+              onClick={() => handleLocationClick(location)}
             >
-              {warehouse.name}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        
-        {warehouses.map(warehouse => (
-          <TabsContent key={warehouse.id} value={warehouse.id} className="space-y-6">
-            {renderHierarchicalView()}
-          </TabsContent>
+              <CardHeader className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="p-2 rounded-lg bg-gray-100/80 backdrop-blur-sm">
+                      <span className="text-gray-700 text-lg">🏢</span>
+                    </div>
+                    <div>
+                      <CardTitle className="text-base sm:text-lg font-semibold text-gray-900 tracking-tight">
+                        {location}
+                      </CardTitle>
+                    </div>
+                  </div>
+                  <Badge className="bg-gray-100/80 text-gray-700 border-gray-200/50 font-medium backdrop-blur-sm text-sm">
+                    {getArtworkCountForLocation(location)}
+                  </Badge>
+                </div>
+              </CardHeader>
+            </Card>
+          </motion.div>
         ))}
-      </Tabs>
+      </div>
     </div>
   );
 };

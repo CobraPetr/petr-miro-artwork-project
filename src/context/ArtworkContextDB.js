@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import ApiService from '../services/ApiService';
 
 const ArtworkContext = createContext();
 
@@ -13,9 +12,11 @@ export const useArtwork = () => {
 
 export const ArtworkProvider = ({ children }) => {
   const [artworks, setArtworks] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [apiConnected, setApiConnected] = useState(false);
+  const [allArtworksData, setAllArtworksData] = useState(null);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const [hasMoreData, setHasMoreData] = useState(true);
   
   const [selectedLocation, setSelectedLocation] = useState({
     warehouse: null,
@@ -37,106 +38,152 @@ export const ArtworkProvider = ({ children }) => {
   const [favorites, setFavorites] = useState(new Set());
   const [analytics, setAnalytics] = useState({});
 
-  // Check API connection and load data
-  useEffect(() => {
-    const initializeData = async () => {
-      setLoading(true);
-      setError(null);
+  // Function to map locations to warehouse names
+  const mapLocationToWarehouse = (artwork) => {
+    let warehouse = 'Anderswo'; // default
+    
+    const location = artwork.warehouse.toLowerCase();
+    
+    // Map to specific warehouse locations
+    if (location.includes('prag') || location.includes('praha') || location.includes('czech') || location.includes('czech republic')) {
+      warehouse = 'Prag to depo';
+    } else if (location.includes('hodonin') && location.includes('bank')) {
+      warehouse = 'Hodonin Bank';
+    } else if (location.includes('hodonin') && location.includes('hala')) {
+      warehouse = 'Hodonin Hala';
+    } else if (location.includes('zürich') && location.includes('lessing')) {
+      warehouse = 'Zürich Lessing';
+    } else if (location.includes('zürich') && location.includes('wädenswil')) {
+      warehouse = 'Zürich Wädenswil';
+    } else if (location.includes('zürich') || location.includes('switzerland') || location.includes('ch-')) {
+      warehouse = 'Zürich Lessing'; // Default Zürich location
+    } else if (location.includes('berlin') || location.includes('germany') || location.includes('de-')) {
+      warehouse = 'Hodonin Hala'; // Default German location
+    } else if (location.includes('amsterdam') || location.includes('netherlands') || location.includes('nl-')) {
+      warehouse = 'Zürich Wädenswil'; // Default Dutch location
+    } else if (location.trim() === '' || location === ',' || location === 'nan') {
+      warehouse = 'Anderswo';
+    } else if (location.length > 50) {
+      // Very long addresses go to Anderswo
+      warehouse = 'Anderswo';
+    } else {
+      // Keep original location for shorter, meaningful addresses
+      warehouse = artwork.warehouse;
+    }
+    
+    return {
+      ...artwork,
+      warehouse: warehouse
+    };
+  };
+
+  // Function to update analytics
+  const updateAnalytics = (artworksList) => {
+    setAnalytics({
+      totalArtworks: artworksList.length,
+      byCategory: {
+        "Imported": artworksList.length
+      },
+      byStatus: {
+        "Available": artworksList.length
+      },
+      byLocation: artworksList.reduce((acc, artwork) => {
+        const location = artwork.warehouse;
+        acc[location] = (acc[location] || 0) + 1;
+        return acc;
+      }, {})
+    });
+  };
+
+  // Load more artworks function
+  const loadMoreArtworks = async () => {
+    if (!allArtworksData || !hasMoreData) return;
+    
+    setLoading(true);
+    try {
+      const batchSize = 1000;
+      const startIndex = loadedCount;
+      const endIndex = Math.min(startIndex + batchSize, allArtworksData.length);
       
+      const newBatch = allArtworksData.slice(startIndex, endIndex);
+      const mappedBatch = newBatch.map(mapLocationToWarehouse);
+      
+      setArtworks(prev => [...prev, ...mappedBatch]);
+      setLoadedCount(endIndex);
+      setHasMoreData(endIndex < allArtworksData.length);
+      
+      updateAnalytics([...artworks, ...mappedBatch]);
+      
+      console.log(`✅ Loaded batch: ${startIndex + 1}-${endIndex} of ${allArtworksData.length} artworks`);
+    } catch (error) {
+      console.error('Error loading more artworks:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load all artworks at once with performance optimizations
+  useEffect(() => {
+    const loadAllArtworks = async () => {
+      setLoading(true);
       try {
-        // Check API health
-        await ApiService.healthCheck();
-        setApiConnected(true);
-        console.log('✅ API connection established');
+        // Check localStorage first for saved changes
+        const savedData = localStorage.getItem('artworks_data');
+        if (savedData) {
+          console.log('🔄 Loading saved artwork data from localStorage...');
+          const savedArtworks = JSON.parse(savedData);
+          setArtworks(savedArtworks);
+          setLoadedCount(savedArtworks.length);
+          setHasMoreData(false);
+          updateAnalytics(savedArtworks);
+          console.log(`✅ Loaded ${savedArtworks.length} artworks from localStorage`);
+          setLoading(false);
+          return;
+        }
+
+        // If no saved data, load from JSON file
+        console.log('🔄 No saved data found, loading from JSON file...');
+        const artworksData = await import('../data/artworks.json');
+        const csvArtworks = artworksData.default || artworksData;
         
-        // Load artworks from database
-        const artworksData = await ApiService.getAllArtworks();
-        setArtworks(artworksData);
+        console.log(`🔄 Processing ${csvArtworks.length} artworks...`);
         
-        // Load movement history
-        const movementsData = await ApiService.getMovements();
-        setMoveHistory(movementsData);
+        // Process all artworks in batches to prevent UI blocking
+        const batchSize = 5000;
+        const allMappedArtworks = [];
         
-        // Load analytics
-        const analyticsData = await ApiService.getAnalytics();
-        setAnalytics(analyticsData);
-        
-        console.log(`✅ Loaded ${artworksData.length} artworks from database`);
-        
-      } catch (err) {
-        console.error('❌ Failed to connect to API, running in demo mode:', err);
-        setApiConnected(false);
-        console.log('🔧 Running in demo mode without database');
-        
-        // Use demo data when API is not available
-        const demoArtworks = [
-          {
-            id: 1,
-            title: "Abstrakte Komposition",
-            artist: "Max Mustermann",
-            category: "Malerei",
-            status: "Verfügbar",
-            warehouse: 1,
-            floor: 1,
-            shelf: 5,
-            box: 2,
-            folder: 3,
-            tags: ["abstract", "modern"],
-            year: 2023,
-            condition: "Ausgezeichnet",
-            description: "Eine wunderschöne abstrakte Komposition in lebendigen Farben",
-            image_url: null
-          },
-          {
-            id: 2,
-            title: "Bronzeskulptur",
-            artist: "Anna Schmidt",
-            category: "Skulptur",
-            status: "Verfügbar",
-            warehouse: 2,
-            floor: 1,
-            shelf: 8,
-            box: 1,
-            folder: 1,
-            tags: ["bronze", "skulptur"],
-            year: 2022,
-            condition: "Gut",
-            description: "Eine elegante Bronzeskulptur",
-            image_url: null
-          },
-          {
-            id: 3,
-            title: "Landschaftsaquarell",
-            artist: "Peter Wagner",
-            category: "Aquarell",
-            status: "Verfügbar",
-            warehouse: 1,
-            floor: 2,
-            shelf: 12,
-            box: 4,
-            folder: 2,
-            tags: ["landschaft", "aquarell"],
-            year: 2024,
-            condition: "Sehr gut",
-            description: "Ein ruhiges Landschaftsaquarell",
-            image_url: null
+        for (let i = 0; i < csvArtworks.length; i += batchSize) {
+          const batch = csvArtworks.slice(i, i + batchSize);
+          const mappedBatch = batch.map(mapLocationToWarehouse);
+          allMappedArtworks.push(...mappedBatch);
+          
+          // Update progress every batch
+          if (i % batchSize === 0) {
+            console.log(`Processed ${Math.min(i + batchSize, csvArtworks.length)} of ${csvArtworks.length} artworks`);
           }
-        ];
+        }
         
-        setArtworks(demoArtworks);
+        setArtworks(allMappedArtworks);
+        setLoadedCount(allMappedArtworks.length);
+        setHasMoreData(false);
+        
+        updateAnalytics(allMappedArtworks);
+        console.log(`✅ Loaded all ${allMappedArtworks.length} artworks successfully`);
+      } catch (error) {
+        console.error('Error loading artworks:', error);
+        setArtworks([]);
         setAnalytics({
-          totalArtworks: 3,
-          byCategory: { "Malerei": 1, "Skulptur": 1, "Aquarell": 1 },
-          byStatus: { "Verfügbar": 3 },
-          byLocation: { "Lagerhaus 1": 2, "Lagerhaus 2": 1 }
+          totalArtworks: 0,
+          byCategory: {},
+          byStatus: {},
+          byLocation: {}
         });
-        console.log('✅ Demo data loaded successfully');
       } finally {
         setLoading(false);
       }
     };
 
-    initializeData();
+    loadAllArtworks();
   }, []);
 
   // Filtered artworks based on search and filters
@@ -167,35 +214,10 @@ export const ArtworkProvider = ({ children }) => {
     return filtered;
   }, [artworks, searchTerm, filters]);
 
-  // Get artworks at specific location
-  const getArtworksAtLocation = async (warehouse, floor, shelf, box, folder) => {
-    if (!apiConnected) {
-      // Fallback to local filtering
-      return artworks.filter(artwork =>
-        artwork.warehouse === parseInt(warehouse) &&
-        artwork.floor === parseInt(floor) &&
-        artwork.shelf === parseInt(shelf) &&
-        artwork.box === parseInt(box) &&
-        artwork.folder === parseInt(folder)
-      );
-    }
-
-    try {
-      const locationArtworks = await ApiService.getArtworksByLocation(
-        warehouse, floor, shelf, box, folder
-      );
-      return locationArtworks;
-    } catch (error) {
-      console.error('Error fetching artworks at location:', error);
-      return [];
-    }
-  };
-
-  // Move artwork to new location
+  // Move artwork function with custom location support
   const moveArtwork = async (artworkId, newLocation, notes = '') => {
-    if (!apiConnected) {
-      // Fallback to local state update
-      setArtworks(prev => prev.map(artwork => {
+    setArtworks(prev => {
+      const updatedArtworks = prev.map(artwork => {
         if (artwork.id === artworkId) {
           const movement = {
             id: `mov-${Date.now()}`,
@@ -206,7 +228,8 @@ export const ArtworkProvider = ({ children }) => {
               floor: artwork.floor,
               shelf: artwork.shelf,
               box: artwork.box,
-              folder: artwork.folder
+              folder: artwork.folder,
+              originalLocation: artwork.originalLocation
             },
             toLocation: newLocation,
             timestamp: new Date().toISOString(),
@@ -214,155 +237,42 @@ export const ArtworkProvider = ({ children }) => {
           };
           setMoveHistory(prev => [movement, ...prev]);
           
-          return {
+          // Update artwork with new location
+          const updatedArtwork = {
             ...artwork,
             ...newLocation,
             lastMoved: new Date().toISOString()
           };
+
+          // If moving to Anderswo and custom location is provided, update originalLocation
+          if (newLocation.warehouse === 'Anderswo' && newLocation.originalLocation) {
+            updatedArtwork.originalLocation = newLocation.originalLocation;
+          }
+
+          return updatedArtwork;
         }
         return artwork;
-      }));
-      return;
-    }
+      });
 
-    try {
-      await ApiService.moveArtwork(artworkId, newLocation, notes);
-      
-      // Refresh artworks and move history
-      const updatedArtworks = await ApiService.getAllArtworks();
-      setArtworks(updatedArtworks);
-      
-      const updatedMovements = await ApiService.getMovements();
-      setMoveHistory(updatedMovements);
-      
-      console.log('✅ Artwork moved successfully');
-    } catch (error) {
-      console.error('❌ Failed to move artwork:', error);
-      setError('Failed to move artwork');
-    }
-  };
-
-  // Search artworks with advanced filters
-  const searchArtworks = async (searchParams) => {
-    if (!apiConnected) {
-      // Use local filtering
-      return filteredArtworks;
-    }
-
-    try {
-      const results = await ApiService.searchArtworks(searchParams);
-      return results;
-    } catch (error) {
-      console.error('Error searching artworks:', error);
-      return [];
-    }
-  };
-
-  // Bulk move artworks
-  const bulkMoveArtworks = async (artworkIds, newLocation, notes = '') => {
-    if (!apiConnected) {
-      // Fallback to individual moves for offline mode
-      for (const id of artworkIds) {
-        await moveArtwork(id, newLocation, notes);
+      // Save to localStorage for persistence
+      try {
+        localStorage.setItem('artworks_data', JSON.stringify(updatedArtworks));
+        console.log('Artwork changes saved to localStorage');
+      } catch (error) {
+        console.error('Error saving to localStorage:', error);
       }
-      return;
-    }
 
-    try {
-      const result = await ApiService.bulkMoveArtworks(artworkIds, newLocation, notes);
-      
-      // Refresh artworks and move history after bulk operation
-      const [updatedArtworks, updatedMovements] = await Promise.all([
-        ApiService.getAllArtworks(),
-        ApiService.getMovements()
-      ]);
-      
-      setArtworks(updatedArtworks);
-      setMoveHistory(updatedMovements);
-      
-      console.log(`✅ Bulk move completed: ${result.summary.successCount} successful, ${result.summary.failureCount} failed`);
-      
-      if (result.summary.failureCount > 0) {
-        setError(`Bulk move partially failed: ${result.summary.failureCount} artworks could not be moved`);
-      }
-      
-      return result;
-    } catch (error) {
-      console.error('❌ Failed to bulk move artworks:', error);
-      setError('Failed to bulk move artworks');
-      throw error;
-    }
-  };
-
-  // Toggle favorite
-  const toggleFavorite = (artworkId) => {
-    setFavorites(prev => {
-      const newFavorites = new Set(prev);
-      if (newFavorites.has(artworkId)) {
-        newFavorites.delete(artworkId);
-      } else {
-        newFavorites.add(artworkId);
-      }
-      return newFavorites;
+      return updatedArtworks;
     });
+
+    // Update analytics after move
+    updateAnalytics(artworks);
   };
 
-  // Export functions
-  const exportToCSV = async () => {
-    try {
-      if (apiConnected) {
-        const exportData = await ApiService.exportArtworksToCSV();
-        ApiService.downloadCSV(exportData.artworks, 'artworks.csv');
-        return exportData;
-      } else {
-        // Fallback CSV export
-        const csvContent = ApiService.convertToCSV(artworks, 'artworks');
-        ApiService.downloadCSV(csvContent, 'artworks.csv');
-        return { artworks: csvContent };
-      }
-    } catch (error) {
-      console.error('Export failed:', error);
-      setError('Export failed');
-    }
-  };
-
-  const exportMoveHistory = async () => {
-    try {
-      if (apiConnected) {
-        const movements = await ApiService.getMovements();
-        const csvContent = ApiService.convertToCSV(movements, 'movements');
-        ApiService.downloadCSV(csvContent, 'move-history.csv');
-      } else {
-        const csvContent = ApiService.convertToCSV(moveHistory, 'movements');
-        ApiService.downloadCSV(csvContent, 'move-history.csv');
-      }
-    } catch (error) {
-      console.error('Move history export failed:', error);
-      setError('Move history export failed');
-    }
-  };
-
-  // Refresh data
-  const refreshData = async () => {
-    if (!apiConnected) return;
-    
-    setLoading(true);
-    try {
-      const [artworksData, movementsData, analyticsData] = await Promise.all([
-        ApiService.getAllArtworks(),
-        ApiService.getMovements(),
-        ApiService.getAnalytics()
-      ]);
-      
-      setArtworks(artworksData);
-      setMoveHistory(movementsData);
-      setAnalytics(analyticsData);
-    } catch (error) {
-      console.error('Failed to refresh data:', error);
-      setError('Failed to refresh data');
-    } finally {
-      setLoading(false);
-    }
+  // Function to reset data to original (clear localStorage)
+  const resetToOriginal = () => {
+    localStorage.removeItem('artworks_data');
+    window.location.reload();
   };
 
   const value = {
@@ -384,20 +294,15 @@ export const ArtworkProvider = ({ children }) => {
     setViewMode,
     loading,
     error,
-    apiConnected,
+    
+    // Batch loading
+    loadedCount,
+    hasMoreData,
+    loadMoreArtworks,
     
     // Actions
-    getArtworksAtLocation,
     moveArtwork,
-    searchArtworks,
-    bulkMoveArtworks,
-    toggleFavorite,
-    exportToCSV,
-    exportMoveHistory,
-    refreshData,
-    
-    // Utility
-    locationOptions: ApiService.generateLocationOptions(),
+    resetToOriginal,
   };
 
   return (
